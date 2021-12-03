@@ -1,0 +1,130 @@
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mysql
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+  clusterIP: None
+  selector:
+    app: mysql
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-read
+  labels:
+    app: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+  selector:
+    app: mysql
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+    env: prod
+data:
+  mysqld.cnf: |
+    [mysqld]
+    pid-file = /var/run/mysqld/mysqld.pid
+    #socket = /var/run/mysqld/mysqld.sock
+    datadir = /var/lib/mysql
+    bind-address = 0.0.0.0
+    symbolic-links=0
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+      env: prod
+  serviceName: mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mysql
+        env: prod
+    spec:
+      serviceAccountName: mysql
+      securityContext:
+        runAsUser: 0
+        fsGroup: 999
+      containers:
+      - name: mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ALLOW_EMPTY_PASSWORD
+          value: "1"
+        ports:
+        - name: mysql
+          containerPort: 3306
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/mysql.conf.d
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+      volumes:
+      - name: conf
+        configMap:
+          name: mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        env: prod
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: storageos
+      resources:
+        requests:
+          storage: 5Gi
+
+---
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    app: mysql
+spec:
+  containers:
+    - name: mysql-client
+      image: mysql:5.7.14
+      command: ["/bin/sh"]
+      args:
+        - "-c"
+        - "while true; do sleep 3600; done"
